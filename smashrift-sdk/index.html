@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgarIO Client</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            background-color: #f0f2f5;
+        }
+
+        #chat {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            width: 350px;
+            height: 500px;
+            display: flex;
+            flex-direction: column;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+            background-color: white;
+            z-index: 10;
+        }
+
+        #chatHeader {
+            background-color: #007bff;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        #chatMessages {
+            flex: 1;
+            padding: 10px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+        }
+
+        #chatForm {
+            display: flex;
+            padding: 10px;
+            background-color: white;
+            border-top: 1px solid #ddd;
+        }
+
+        #messageInput {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 20px;
+            outline: none;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            margin-left: 5px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        /* battle field */
+        #battleField {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f0f2f5;
+            overflow: hidden;
+        }
+
+        /* Grid lines */
+        #grid {
+            position: absolute;
+            width: 5000px;
+            height: 5000px;
+            background-size: 50px 50px;
+            background-image: linear-gradient(to right, rgba(0, 0, 0, 0.2) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(0, 0, 0, 0.2) 1px, transparent 1px);
+        }
+
+        /* Player coordinates display */
+        #coords {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <section id="chat">
+        <div id="chatHeader">Chat</div>
+        <div id="chatMessages"></div>
+        <form id="chatForm" onsubmit="event.preventDefault(); sendMessage()">
+            <input type="text" id="messageInput" placeholder="Enter message">
+            <button type="submit">Send</button>
+        </form>
+    </section>
+
+    <h2 style="z-index: 100; position: fixed; top: 10px; left: 10px;">Battle Field</h2>
+    <div id="coords"></div>
+    <div id="battleField">
+        <div id="grid"></div>
+    </div>
+
+    <script>
+        let cameraX = 0;
+        let cameraY = 0;
+        const grid = document.getElementById("grid");
+        const coordsDisplay = document.getElementById("coords");
+
+        function setScreenAtCoords(x, y) {
+            const viewportWidth = grid.clientWidth;
+            const viewportHeight = grid.clientHeight;
+            cameraX = x;
+            cameraY = y;
+            grid.style.transform = `translate(${Math.floor(-x + viewportWidth / 2)}px, ${Math.floor(-y + viewportHeight / 2)}px)`;
+            coordsDisplay.textContent = `Coords: (${Number(x).toFixed(2)}, ${Number(y).toFixed(2)})`;
+        }
+
+        let ws;
+        let playerID;
+
+        function handleUpdate(data) {
+            grid.innerHTML = "";
+            data.forEach((line) => {
+                let { id, name, position } = line;
+                let player = document.createElement("div");
+                player.style.position = "absolute";
+                player.style.width = "20px";
+                player.style.height = "20px";
+                player.style.backgroundColor = "red";
+                player.style.borderRadius = "50%";
+                player.style.left = position.x + "px";
+                player.style.top = position.y + "px";
+                player.textContent = name;
+                grid.appendChild(player);
+
+                if (id === playerID) {
+                    player.style.backgroundColor = "blue";
+                    setScreenAtCoords(position.x, position.y);
+                }
+            });
+        }
+
+        function connect() {
+            ws = new WebSocket("ws://localhost:8080/ws");
+
+            ws.onopen = () => console.log("Connected to WebSocket server");
+
+            ws.onmessage = (event) => {
+                let data = JSON.parse(event.data);
+                if (data.type === "update") {
+                    handleUpdate(data.content);
+                } else if (data.type === "player") {
+                    playerID = data.content.id;
+                    setScreenAtCoords(data.content.position.x, data.content.position.y);
+                } else if (data.type === "chat") {
+                    let chatDisplay = document.getElementById("chatMessages");
+                    let messageElement = document.createElement("p");
+                    messageElement.textContent = data.content;
+                    chatDisplay.appendChild(messageElement);
+                    chatDisplay.scrollTop = chatDisplay.scrollHeight;
+                }
+            };
+
+            ws.onclose = () => {
+                console.log("WebSocket connection closed, retrying...");
+                setTimeout(connect, 1000);
+                clearInterval(interval);
+            };
+
+            ws.onerror = (error) => console.error("WebSocket error:", error);
+        }
+
+        // messages
+
+        function sendMessage() {
+            let input = document.getElementById("messageInput");
+            let message = input.value;
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(message);
+            }
+            input.value = "";
+        }
+
+        function sentUpdateDirectionMessage(x,y){
+            let message = {
+                type: "update-direction",
+                content: {
+                    x: x,
+                    y: y
+                },
+            };
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(message));
+            }
+        }
+
+        let mouseCoords = {x: 0, y: 0};
+        let lastDirs = {x: 0, y: 0};
+        document.addEventListener("mousemove", (event) => {mouseCoords.x = event.clientX;mouseCoords.y = event.clientY;});
+        
+        const interval = setInterval(() => {
+            const dirX = mouseCoords.x - window.innerWidth / 2;
+            const dirY = mouseCoords.y - window.innerHeight / 2;
+            if (dirX !== lastDirs.x || dirY !== lastDirs.y) {
+                lastDirs.x = dirX;
+                lastDirs.y = dirY;
+                sentUpdateDirectionMessage(dirX, dirY);
+            }
+        }, 1000 / 30); // 30 fps
+
+        connect();
+    </script>
+</body>
+</html>
