@@ -207,9 +207,12 @@
 
         function sendMessage() {
             let input = document.getElementById("messageInput");
-            let message = input.value;
+            let message = {
+                type: "chat",
+                content: input.value
+            };
             if (ws.readyState === WebSocket.OPEN) {
-                ws.send(message);
+                ws.send(JSON.stringify(message));
             }
             input.value = "";
         }
